@@ -267,7 +267,10 @@ jobs:
                       ;;
                   esac
                   
-                  NEW_NAME="${NAME}-${DIRNAME}-${{ steps.branch.outputs.tag_suffix }}-${DATE}.${EXT}"
+                  # Extract platform from DIRNAME (e.g., 'bbpPairings-linux' -> 'linux')
+                  PLATFORM="${DIRNAME#bbpPairings-}"
+                  
+                  NEW_NAME="${NAME}-${PLATFORM}-${{ steps.branch.outputs.tag_suffix }}-${DATE}.${EXT}"
                   
                   cp "$file" "release-assets/${NEW_NAME}"
                   echo "Prepared: ${NEW_NAME}"
@@ -311,7 +314,7 @@ jobs:
           
           ## Artifacts
           - **Linux**: bbpPairings-linux build (static binary)
-          - **Windows**: bbpPairings-windows build (static binary)
+          - **Windows**: bbpPairings-windows build (dynamic binary with required DLLs)
           
           ## Notes
           - These builds are automatically generated when new commits are detected in the upstream repository

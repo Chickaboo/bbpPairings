@@ -64,7 +64,7 @@ After a successful sync:
 All build artifacts are published to a rolling release:
 - **Tag name**: `latest-{branch-name}` (e.g., `latest-main`)
 - **Release name**: "Latest Automated Build - {branch} ({date})"
-- **Artifacts**: Named with platform, branch, and date (e.g., `bbpPairings-bbpPairings-linux-main-2026-01-15.tar.gz`)
+- **Artifacts**: Named with platform, branch, and date (e.g., `bbpPairings-linux-main-2026-01-15.tar.gz`)
 - The release is **continuously updated** - old artifacts are replaced with new ones
 - Only releases from the default branch are marked as "latest" in the repository
 
@@ -75,7 +75,7 @@ Each rolling release includes:
 - **Windows build**: Dynamic binary distribution for Windows systems (with required DLLs)
 - **Release notes**: Information about the build date, branch, and upstream source
 
-Example artifact name: `bbpPairings-bbpPairings-linux-main-2026-01-15.tar.gz`
+Example artifact name: `bbpPairings-linux-main-2026-01-15.tar.gz`
 
 ## Accessing Builds
 
