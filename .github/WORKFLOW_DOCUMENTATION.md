@@ -46,15 +46,17 @@ If new commits are detected:
 - Attempts to merge upstream changes into the current branch
 - If merge succeeds: proceeds to build
 - If merge conflicts occur: 
-  - Aborts the merge
-  - Logs a warning
-  - Fails gracefully (manual intervention required)
+  - Aborts the merge and leaves the current branch unchanged
+  - Logs an error and marks the workflow run as **failed**
+  - Sync and build steps are skipped
+  - Manual conflict resolution required before the next run can succeed
 
 #### Building
 
 After a successful sync:
-- Builds static binaries for **Linux** (Ubuntu) and **Windows**
-- Uses the existing Makefile with `static=yes` flag
+- Builds static binaries for **Linux** (Ubuntu) 
+- Builds dynamic binaries for **Windows** (to avoid winpthreads license complications)
+- Uses the existing Makefile
 - Creates distribution packages (`.tar.gz` for Linux, `.zip` for Windows)
 
 #### Publishing
@@ -62,7 +64,7 @@ After a successful sync:
 All build artifacts are published to a rolling release:
 - **Tag name**: `latest-{branch-name}` (e.g., `latest-main`)
 - **Release name**: "Latest Automated Build - {branch} ({date})"
-- **Artifacts**: Named with branch and date (e.g., `bbpPairings-linux-main-2026-01-15.tar.gz`)
+- **Artifacts**: Named with platform, branch, and date (e.g., `bbpPairings-bbpPairings-linux-main-2026-01-15.tar.gz`)
 - The release is **continuously updated** - old artifacts are replaced with new ones
 - Only releases from the default branch are marked as "latest" in the repository
 
@@ -70,10 +72,10 @@ All build artifacts are published to a rolling release:
 
 Each rolling release includes:
 - **Linux build**: Static binary distribution for Linux systems
-- **Windows build**: Static binary distribution for Windows systems
+- **Windows build**: Dynamic binary distribution for Windows systems (with required DLLs)
 - **Release notes**: Information about the build date, branch, and upstream source
 
-Example artifact name: `bbpPairings-linux-main-2026-01-15.tar.gz`
+Example artifact name: `bbpPairings-bbpPairings-linux-main-2026-01-15.tar.gz`
 
 ## Accessing Builds
 
