@@ -2,7 +2,7 @@ name: Sync Upstream and Build
 
 on:
   schedule:
-    # Run on the 1st and 15th of each month at 00:00 UTC (bi-monthly)
+    # Run on the 1st and 15th of each month at 00:00 UTC (semi-monthly)
     - cron: '0 0 1,15 * *'
   workflow_dispatch:
     inputs:
@@ -81,7 +81,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sync_success: ${{ steps.sync.outputs.success }}
-      branches: ${{ steps.detect-branches.outputs.branches }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -101,19 +100,15 @@ jobs:
 
       - name: Attempt sync
         id: sync
+        continue-on-error: true
         run: |
-          set +e  # Don't exit on error
-          
           UPSTREAM_BRANCH=$(git remote show upstream | sed -n '/HEAD branch/s/.*: //p')
           CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           
           echo "Attempting to merge upstream/$UPSTREAM_BRANCH into $CURRENT_BRANCH"
           
           # Try to merge
-          git merge upstream/$UPSTREAM_BRANCH --no-edit
-          MERGE_EXIT_CODE=$?
-          
-          if [ $MERGE_EXIT_CODE -eq 0 ]; then
+          if git merge upstream/$UPSTREAM_BRANCH --no-edit; then
             echo "✓ Merge successful"
             git push origin $CURRENT_BRANCH
             echo "success=true" >> $GITHUB_OUTPUT
@@ -124,19 +119,12 @@ jobs:
             # Abort the merge
             git merge --abort
             
-            # Create an issue or comment about the conflict
+            # Log warning
             echo "::warning::Merge conflict detected. Manual intervention required."
             exit 1
           fi
 
-      - name: Detect branches to build
-        id: detect-branches
-        if: steps.sync.outputs.success == 'true'
-        run: |
-          # Get all branches that exist both locally and in upstream
-          BRANCHES=$(git branch -r | grep 'upstream/' | grep -v 'HEAD' | sed 's|upstream/||' | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
-          echo "Detected branches: $BRANCHES"
+
 
   build:
     name: Build Artifacts
@@ -157,6 +145,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: Set up build environment (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -190,6 +180,7 @@ jobs:
 
       - name: Prepare artifacts
         id: prepare
+        shell: bash
         run: |
           # Find the distribution file
           if [ -f bbpPairings*.tar.gz ]; then
@@ -203,7 +194,6 @@ jobs:
           
           echo "dist_file=$DIST_FILE" >> $GITHUB_OUTPUT
           echo "Found distribution file: $DIST_FILE"
-        shell: bash
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -309,9 +299,17 @@ jobs:
           Upstream: https://github.com/BieremaBoyzProgramming/bbpPairings
           EOF
           
-          # Create the release
-          gh release create "$TAG_NAME" \
-            --title "Latest Automated Build - $BRANCH_NAME ($DATE)" \
-            --notes-file release-notes.md \
-            --latest \
-            release-assets/*
+          # Create the release (only mark as latest if this is the default branch)
+          DEFAULT_BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
+          if [ "$BRANCH_NAME" = "$DEFAULT_BRANCH" ]; then
+            gh release create "$TAG_NAME" \
+              --title "Latest Automated Build - $BRANCH_NAME ($DATE)" \
+              --notes-file release-notes.md \
+              --latest \
+              release-assets/*
+          else
+            gh release create "$TAG_NAME" \
+              --title "Latest Automated Build - $BRANCH_NAME ($DATE)" \
+              --notes-file release-notes.md \
+              release-assets/*
+          fi

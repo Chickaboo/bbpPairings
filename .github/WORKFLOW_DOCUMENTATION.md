@@ -6,10 +6,11 @@ This repository includes an automated GitHub Actions workflow that syncs with th
 
 The `sync-and-build.yml` workflow automatically:
 
-1. **Checks for upstream changes** on a bi-monthly schedule (1st and 15th of each month)
-2. **Syncs with upstream** if new commits are detected
-3. **Builds artifacts** for Linux and Windows platforms
-4. **Publishes artifacts** to a rolling "latest" release
+1. **Checks for upstream changes** on a semi-monthly schedule (1st and 15th of each month)
+2. **Syncs with upstream** only when new commits are detected
+3. **Handles merge conflicts gracefully** by aborting and logging warnings
+4. **Builds artifacts** for Linux and Windows platforms using static linking
+5. **Publishes artifacts** to a rolling "latest" release
 
 ## Workflow Details
 
@@ -19,7 +20,7 @@ The workflow runs automatically:
 - On the **1st of each month** at 00:00 UTC
 - On the **15th of each month** at 00:00 UTC
 
-This bi-monthly schedule minimizes CI usage while keeping the fork reasonably up-to-date.
+This semi-monthly schedule minimizes CI usage while keeping the fork reasonably up-to-date.
 
 ### Manual Triggers
 
@@ -61,8 +62,9 @@ After a successful sync:
 All build artifacts are published to a rolling release:
 - **Tag name**: `latest-{branch-name}` (e.g., `latest-main`)
 - **Release name**: "Latest Automated Build - {branch} ({date})"
-- **Artifacts**: Named with branch and date (e.g., `bbpPairings-linux-main-2024-01-15.tar.gz`)
+- **Artifacts**: Named with branch and date (e.g., `bbpPairings-linux-main-2026-01-15.tar.gz`)
 - The release is **continuously updated** - old artifacts are replaced with new ones
+- Only releases from the default branch are marked as "latest" in the repository
 
 ### Release Contents
 
@@ -70,6 +72,8 @@ Each rolling release includes:
 - **Linux build**: Static binary distribution for Linux systems
 - **Windows build**: Static binary distribution for Windows systems
 - **Release notes**: Information about the build date, branch, and upstream source
+
+Example artifact name: `bbpPairings-linux-main-2026-01-15.tar.gz`
 
 ## Accessing Builds
 
@@ -94,7 +98,7 @@ If the workflow encounters merge conflicts:
 ## Minimizing CI Usage
 
 The workflow is designed to minimize GitHub Actions usage:
-- Only runs bi-monthly (not weekly or daily)
+- Only runs semi-monthly (not weekly or daily)
 - Skips building if no new commits are detected
 - Fails fast if merge conflicts occur
 - Uses efficient build strategies (static linking, single-stage builds)
