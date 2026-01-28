@@ -1,0 +1,344 @@
+name: Sync Upstream and Build
+
+on:
+  schedule:
+    # Run on the 1st and 15th of each month at 00:00 UTC (semi-monthly)
+    - cron: '0 0 1,15 * *'
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: 'Force sync even if no new commits'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-upstream:
+    name: Check for Upstream Changes
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+      upstream_sha: ${{ steps.check.outputs.upstream_sha }}
+      current_sha: ${{ steps.check.outputs.current_sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/BieremaBoyzProgramming/bbpPairings.git || true
+          git fetch upstream
+
+      - name: Check for new commits
+        id: check
+        run: |
+          # Get the default branch of upstream
+          UPSTREAM_BRANCH=$(git remote show upstream | sed -n '/HEAD branch/s/.*: //p')
+          echo "Upstream default branch: $UPSTREAM_BRANCH"
+          
+          # Get current branch
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Current branch: $CURRENT_BRANCH"
+          
+          # Get SHAs
+          UPSTREAM_SHA=$(git rev-parse upstream/$UPSTREAM_BRANCH)
+          CURRENT_SHA=$(git rev-parse HEAD)
+          
+          echo "upstream_sha=$UPSTREAM_SHA" >> $GITHUB_OUTPUT
+          echo "current_sha=$CURRENT_SHA" >> $GITHUB_OUTPUT
+          
+          # Check if we're behind upstream
+          if [ "$UPSTREAM_SHA" != "$CURRENT_SHA" ]; then
+            # Check if current HEAD is ancestor of upstream
+            if git merge-base --is-ancestor HEAD upstream/$UPSTREAM_BRANCH 2>/dev/null; then
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "✓ New commits found in upstream"
+            else
+              # Branches have diverged
+              BEHIND=$(git rev-list --count HEAD..upstream/$UPSTREAM_BRANCH)
+              if [ "$BEHIND" -gt 0 ]; then
+                echo "has_changes=true" >> $GITHUB_OUTPUT
+                echo "✓ Upstream has $BEHIND new commits (branches may have diverged)"
+              else
+                echo "has_changes=false" >> $GITHUB_OUTPUT
+                echo "✗ No new commits in upstream"
+              fi
+            fi
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "✗ Already up to date with upstream"
+          fi
+
+  sync-upstream:
+    name: Sync with Upstream
+    needs: check-upstream
+    if: needs.check-upstream.outputs.has_changes == 'true' || github.event.inputs.force_sync == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      sync_success: ${{ steps.sync.outputs.success }}
+      merged_sha: ${{ steps.sync.outputs.merged_sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/BieremaBoyzProgramming/bbpPairings.git || true
+          git fetch upstream
+
+      - name: Attempt sync
+        id: sync
+        run: |
+          UPSTREAM_BRANCH=$(git remote show upstream | sed -n '/HEAD branch/s/.*: //p')
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          
+          echo "Attempting to merge upstream/$UPSTREAM_BRANCH into $CURRENT_BRANCH"
+          
+          # Try to merge
+          if git merge upstream/$UPSTREAM_BRANCH --no-edit; then
+            echo "✓ Merge successful"
+            git push origin $CURRENT_BRANCH
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "merged_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          else
+            echo "✗ Merge conflict detected"
+            echo "success=false" >> $GITHUB_OUTPUT
+            
+            # Abort the merge
+            git merge --abort
+            
+            # Log error and fail the job
+            echo "::error::Merge conflict detected. Manual intervention required."
+            exit 1
+          fi
+
+
+
+  build:
+    name: Build Artifacts
+    needs: sync-upstream
+    if: needs.sync-upstream.outputs.sync_success == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: bbpPairings-linux
+            build_flags: static=yes
+          - os: windows-latest
+            artifact_name: bbpPairings-windows
+            build_flags: ""
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up build environment (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential g++
+
+      - name: Set up build environment (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            make
+            zip
+
+      - name: Build (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          make clean || true
+          make ${{ matrix.build_flags }}
+          make dist
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          make clean || true
+          make ${{ matrix.build_flags }}
+          make dist
+
+      - name: Prepare artifacts
+        id: prepare
+        shell: bash
+        run: |
+          # Find the distribution file
+          if [ -f bbpPairings*.tar.gz ]; then
+            DIST_FILE=$(ls bbpPairings*.tar.gz | head -n 1)
+          elif [ -f bbpPairings*.zip ]; then
+            DIST_FILE=$(ls bbpPairings*.zip | head -n 1)
+          else
+            echo "No distribution file found"
+            exit 1
+          fi
+          
+          echo "dist_file=$DIST_FILE" >> $GITHUB_OUTPUT
+          echo "Found distribution file: $DIST_FILE"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.prepare.outputs.dist_file }}
+          retention-days: 90
+
+  publish-release:
+    name: Publish Rolling Release
+    needs: [sync-upstream, build]
+    if: needs.sync-upstream.outputs.sync_success == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.sync-upstream.outputs.merged_sha || github.sha }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4.1.3
+        with:
+          path: artifacts
+
+      - name: Get current branch name
+        id: branch
+        run: |
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          # Sanitize branch name for tag
+          TAG_SUFFIX=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+          echo "tag_suffix=$TAG_SUFFIX" >> $GITHUB_OUTPUT
+
+      - name: Prepare release assets
+        id: prepare-release
+        run: |
+          mkdir -p release-assets
+          
+          # Get current date
+          DATE=$(date +'%Y-%m-%d')
+          
+          # Copy and rename artifacts
+          for dir in artifacts/*/; do
+            if [ -d "$dir" ]; then
+              for file in "$dir"*; do
+                if [ -f "$file" ]; then
+                  BASENAME=$(basename "$file")
+                  DIRNAME=$(basename "$dir")
+                  
+                  # Add branch, platform (DIRNAME), and date to filename
+                  case "$BASENAME" in
+                    *.tar.gz)
+                      EXT="tar.gz"
+                      NAME="${BASENAME%.tar.gz}"
+                      ;;
+                    *.tar.bz2)
+                      EXT="tar.bz2"
+                      NAME="${BASENAME%.tar.bz2}"
+                      ;;
+                    *.tar.xz)
+                      EXT="tar.xz"
+                      NAME="${BASENAME%.tar.xz}"
+                      ;;
+                    *)
+                      EXT="${BASENAME##*.}"
+                      NAME="${BASENAME%.*}"
+                      ;;
+                  esac
+                  
+                  # Extract platform from DIRNAME (e.g., 'bbpPairings-linux' -> 'linux')
+                  PLATFORM="${DIRNAME#bbpPairings-}"
+                  
+                  NEW_NAME="${NAME}-${PLATFORM}-${{ steps.branch.outputs.tag_suffix }}-${DATE}.${EXT}"
+                  
+                  cp "$file" "release-assets/${NEW_NAME}"
+                  echo "Prepared: ${NEW_NAME}"
+                fi
+              done
+            fi
+          done
+          
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
+      - name: Delete existing latest release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="latest-${{ steps.branch.outputs.tag_suffix }}"
+          
+          # Delete the release if it exists
+          gh release delete "$TAG_NAME" --yes || true
+          
+          # Delete the tag if it exists (be explicit about the tag namespace)
+          git push origin --delete "refs/tags/$TAG_NAME" || true
+
+      - name: Create rolling latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="latest-${{ steps.branch.outputs.tag_suffix }}"
+          BRANCH_NAME="${{ steps.branch.outputs.name }}"
+          DATE="${{ steps.prepare-release.outputs.date }}"
+          
+          # Create release notes
+          cat > release-notes.md << EOF
+          # Latest Build - $BRANCH_NAME Branch
+          
+          **Build Date:** $DATE
+          **Branch:** $BRANCH_NAME
+          **Upstream:** BieremaBoyzProgramming/bbpPairings
+          
+          This is an automated rolling release that always contains the latest builds from the upstream repository.
+          
+          ## Artifacts
+          - **Linux**: bbpPairings-linux build (static binary)
+          - **Windows**: bbpPairings-windows build (dynamic binary with required DLLs)
+          
+          ## Notes
+          - These builds are automatically generated when new commits are detected in the upstream repository
+          - Builds are checked semi-monthly (1st and 15th of each month)
+          - This release is continuously updated with the latest builds
+          
+          ## Source
+          Upstream: https://github.com/BieremaBoyzProgramming/bbpPairings
+          EOF
+          
+          # Create the release (only mark as latest if this is the default branch)
+          DEFAULT_BRANCH=$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')
+          MERGED_SHA="${{ needs.sync-upstream.outputs.merged_sha }}"
+          if [ "$BRANCH_NAME" = "$DEFAULT_BRANCH" ]; then
+            gh release create "$TAG_NAME" \
+              --title "Latest Automated Build - $BRANCH_NAME ($DATE)" \
+              --notes-file release-notes.md \
+              --target "${MERGED_SHA:-$BRANCH_NAME}" \
+              --latest \
+              release-assets/*
+          else
+            gh release create "$TAG_NAME" \
+              --title "Latest Automated Build - $BRANCH_NAME ($DATE)" \
+              --notes-file release-notes.md \
+              --target "${MERGED_SHA:-$BRANCH_NAME}" \
+              release-assets/*
+          fi
