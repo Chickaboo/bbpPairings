@@ -30,7 +30,7 @@ You can also trigger the workflow manually:
 3. Click **Run workflow**
 4. Optionally check **Force sync** to sync even if no new commits are detected
 
-**Note:** When triggered manually, all workflow steps (sync, build, and publish) will run regardless of whether new commits are detected, ensuring you always get a fresh build.
+**Note:** When triggered manually, the workflow will attempt to sync, build, and publish regardless of whether new commits are detected. However, if the sync step fails (e.g., due to merge conflicts), the build and publish steps will be skipped.
 
 ### Behavior
 
