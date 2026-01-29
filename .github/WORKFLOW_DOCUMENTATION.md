@@ -30,6 +30,8 @@ You can also trigger the workflow manually:
 3. Click **Run workflow**
 4. Optionally check **Force sync** to sync even if no new commits are detected
 
+**Note:** When triggered manually, the workflow will attempt to sync, build, and publish regardless of whether new commits are detected. However, if the sync step fails (e.g., due to merge conflicts), the build and publish steps will be skipped.
+
 ### Behavior
 
 #### Checking for Changes
@@ -37,8 +39,8 @@ You can also trigger the workflow manually:
 The workflow:
 - Fetches the latest commits from upstream (`BieremaBoyzProgramming/bbpPairings`)
 - Compares the upstream default branch with the current branch
-- Only proceeds to sync if new commits are detected
-- Skips the build if no changes are found (saving CI minutes)
+- On **scheduled runs**: Only proceeds to sync/build if new commits are detected (saving CI minutes)
+- On **manual runs**: Always proceeds to sync/build regardless of commit status
 
 #### Syncing
 

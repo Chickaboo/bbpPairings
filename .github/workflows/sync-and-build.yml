@@ -77,7 +77,7 @@ jobs:
   sync-upstream:
     name: Sync with Upstream
     needs: check-upstream
-    if: needs.check-upstream.outputs.has_changes == 'true' || github.event.inputs.force_sync == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.check-upstream.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     outputs:
       sync_success: ${{ steps.sync.outputs.success }}
@@ -130,7 +130,7 @@ jobs:
   build:
     name: Build Artifacts
     needs: sync-upstream
-    if: needs.sync-upstream.outputs.sync_success == 'true'
+    if: needs.sync-upstream.result == 'success' && needs.sync-upstream.outputs.sync_success == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -209,7 +209,7 @@ jobs:
   publish-release:
     name: Publish Rolling Release
     needs: [sync-upstream, build]
-    if: needs.sync-upstream.outputs.sync_success == 'true'
+    if: needs.sync-upstream.result == 'success' && needs.sync-upstream.outputs.sync_success == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
